@@ -973,15 +973,24 @@ _lp_git_branch_color()
 
 # Search upwards through a directory structure looking for a file/folder with
 # the given name.  Used to avoid invoking 'hg' and 'bzr'.
-_lp_upwards_find()
+_lp_upwards_get()
 {
     local dir
     dir="$PWD"
     while [[ -n "$dir" ]]; do
-        [[ -d "$dir/$1" ]] && return 0
+        if [[ -d "$dir/$1" ]];
+        then
+            echo "$dir/$1"
+            return 0
+        fi
         dir="${dir%/*}"
     done
     return 1
+}
+
+_lp_upwards_find()
+{
+    _lp_upwards_get $1 >/dev/null
 }
 
 # MERCURIAL #
@@ -994,13 +1003,16 @@ _lp_hg_branch()
     # First do a simple search to avoid having to invoke hg -- at least on my
     # machine, the python startup causes a noticeable hitch when changing
     # directories.
-    _lp_upwards_find .hg || return
+    local hg_dir
+    hg_dir=$(_lp_upwards_get .hg) || return
 
-    # We found an .hg folder, so we need to invoke hg and see if we're actually
-    # in a repository.
-
-    local branch
-    branch="$(hg branch 2>/dev/null)"
+    # We found an .hg folder, so we check for a 'branch' file, as per
+    # https://www.mercurial-scm.org/wiki/FileFormats#branch_.28utf-8.29
+    # If the file does not exist, the repo is on the 'default' branch
+    local branch='default'
+    if [[ -f "${hg_dir}/branch" ]]; then
+        branch="$(cat ${hg_dir}/branch 2>/dev/null)"
+    fi
 
     (( $? == 0 )) && _lp_escape "$branch"
 }
@@ -1020,7 +1032,9 @@ _lp_hg_branch_color()
 
         local has_untracked
         has_untracked=
-        if hg status -u 2>/dev/null | \grep -q '^?' >/dev/null ; then
+        local status
+        status=$(hg status 2>/dev/null)
+        if echo "${status}" | grep -q '^?' >/dev/null ; then
             has_untracked="$LP_COLOR_CHANGES$LP_MARK_UNTRACKED"
         fi
 
@@ -1031,17 +1045,8 @@ _lp_hg_branch_color()
         local -i commits
         #commits=$(hg outgoing --no-merges ${branch} 2>/dev/null | \grep -c '\(^changeset\:\)')
         commits=0
-
         # Check if there is some uncommitted stuff
-        if [[ -z "$(hg status --quiet -n)" ]]; then
-            if (( commits > 0 )); then
-                # some commit(s) to push
-                ret="${LP_COLOR_COMMITS}${branch}${NO_COL}(${LP_COLOR_COMMITS}$commits${NO_COL})${has_untracked}${NO_COL}"
-            else
-                # nothing to commit or push
-                ret="${LP_COLOR_UP}${branch}${has_untracked}${NO_COL}"
-            fi
-        else
+        if echo "${status}" | grep -q '^[^?]' >/dev/null; then
             local has_lines
             # Parse the last line of the diffstat-style output
             has_lines="$(hg diff --stat 2>/dev/null | sed -n '$ s!^.*, \([0-9]*\) .*, \([0-9]*\).*$!+\1/-\2!p')"
@@ -1050,6 +1055,14 @@ _lp_hg_branch_color()
                 ret="${LP_COLOR_CHANGES}${branch}${NO_COL}(${LP_COLOR_DIFF}$has_lines${NO_COL},${LP_COLOR_COMMITS}$commits${NO_COL})${has_untracked}${NO_COL}"
             else
                 ret="${LP_COLOR_CHANGES}${branch}${NO_COL}(${LP_COLOR_DIFF}$has_lines${NO_COL})${has_untracked}${NO_COL}" # changes to commit
+            fi
+        else
+            if (( commits > 0 )); then
+                # some commit(s) to push
+                ret="${LP_COLOR_COMMITS}${branch}${NO_COL}(${LP_COLOR_COMMITS}$commits${NO_COL})${has_untracked}${NO_COL}"
+            else
+                # nothing to commit or push
+                ret="${LP_COLOR_UP}${branch}${has_untracked}${NO_COL}"
             fi
         fi
         echo -nE "$ret"
