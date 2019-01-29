@@ -1032,7 +1032,9 @@ _lp_hg_branch_color()
 
         local has_untracked
         has_untracked=
-        if hg status -u 2>/dev/null | \grep -q '^?' >/dev/null ; then
+        local status
+        status=$(hg status 2>/dev/null)
+        if echo "${status}" | grep -q '^?' >/dev/null ; then
             has_untracked="$LP_COLOR_CHANGES$LP_MARK_UNTRACKED"
         fi
 
@@ -1043,17 +1045,8 @@ _lp_hg_branch_color()
         local -i commits
         #commits=$(hg outgoing --no-merges ${branch} 2>/dev/null | \grep -c '\(^changeset\:\)')
         commits=0
-
         # Check if there is some uncommitted stuff
-        if [[ -z "$(hg status --quiet -n)" ]]; then
-            if (( commits > 0 )); then
-                # some commit(s) to push
-                ret="${LP_COLOR_COMMITS}${branch}${NO_COL}(${LP_COLOR_COMMITS}$commits${NO_COL})${has_untracked}${NO_COL}"
-            else
-                # nothing to commit or push
-                ret="${LP_COLOR_UP}${branch}${has_untracked}${NO_COL}"
-            fi
-        else
+        if echo "${status}" | grep -v -q '^?' >/dev/null; then
             local has_lines
             # Parse the last line of the diffstat-style output
             has_lines="$(hg diff --stat 2>/dev/null | sed -n '$ s!^.*, \([0-9]*\) .*, \([0-9]*\).*$!+\1/-\2!p')"
@@ -1062,6 +1055,14 @@ _lp_hg_branch_color()
                 ret="${LP_COLOR_CHANGES}${branch}${NO_COL}(${LP_COLOR_DIFF}$has_lines${NO_COL},${LP_COLOR_COMMITS}$commits${NO_COL})${has_untracked}${NO_COL}"
             else
                 ret="${LP_COLOR_CHANGES}${branch}${NO_COL}(${LP_COLOR_DIFF}$has_lines${NO_COL})${has_untracked}${NO_COL}" # changes to commit
+            fi
+        else
+            if (( commits > 0 )); then
+                # some commit(s) to push
+                ret="${LP_COLOR_COMMITS}${branch}${NO_COL}(${LP_COLOR_COMMITS}$commits${NO_COL})${has_untracked}${NO_COL}"
+            else
+                # nothing to commit or push
+                ret="${LP_COLOR_UP}${branch}${has_untracked}${NO_COL}"
             fi
         fi
         echo -nE "$ret"
